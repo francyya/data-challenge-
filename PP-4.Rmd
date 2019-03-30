@@ -1,0 +1,322 @@
+---
+title: "Take-home-challenge"
+author: "Fangqi Ouyang"
+date: "3/13/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Load Labraries
+```{r}
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(reshape2)
+library(ggcorrplot)
+library(glmnet)
+library(tidyverse)
+library(car)
+library(varhandle)
+library(rlist)
+library(smotefamily)
+library(ROCR)
+library(randomForest)
+library(ROSE)
+library(MASS)
+library(e1071)
+```
+
+
+#Data Perparation 
+```{r}
+#Load Data 
+setwd("/Users/fangqiouyang/Take_Hone_Challenge_dataset/")
+data_train <- read.csv("interview_data_train.csv",header=FALSE)
+colnames(data_train)[1] <- "Class"
+data_test <- read.csv("interview_data_train.csv",header=FALSE)
+colnames(data_test)[1] <- "Class"
+#head(data_train)
+#head(data_test)
+```
+
+```{r}
+#Check NA values 
+sum(is.na(data_train))
+sum(is.na(data_train)) #No NAs 
+```
+```{r}
+#Check for outliers
+data_train[,1] <- as.factor(data_train[,1])
+melt_data1 = melt(data_train[,1:21])
+melt_data2 = melt(data_train[,c(1,22:41)])
+melt_data3 = melt(data_train[,c(1,42:61)])
+melt_data4 = melt(data_train[,c(1,62:81)])
+melt_data5 = melt(data_train[,c(1,82:97)])
+melt_all = melt(data_train)
+melt = list(melt_data1,melt_data2,melt_data3,melt_data4,melt_data5)
+for(i in 1:5){
+p = ggplot(melt[[i]],aes(x=variable,y=value))+geom_boxplot(aes(fill=Class))+facet_wrap(~variable,scales="free")
+plot(p)
+}
+data_train[,1] <- unfactor(data_train[,1])
+```
+##From the boxplots above, we see that (1) there are not obvious outliers; (2) some features(like V58 ) have similar shape and median value in two classes, which indicates there may not be a relationship between those features and outcomes; some predictors share the same impact on the class(like V57,V58,V59,V60), which shows potential multicolinearity. However,  there are also some predictors like V95 that may be strongly related to the outcomes. 
+
+
+```{r}
+#Remove duplicate columns
+data_train_new <- as.data.frame(cbind(data_train[,1],
+                                      t(unique(t(data_train[,-1])))))#27914x64(33 duplicate columns)
+colnames(data_train_new)[1] <- "Class"
+```
+
+```{r}
+#Remove constant columns 
+constant <- function(col){
+  if(all(col==col[1])){return(FALSE)}
+  else{return(TRUE)}
+}
+columns <- unlist(lapply(data_train_new[,-1],constant))
+data_train_new <- data_train_new[,c("Class",names(columns[columns==TRUE]))]
+#27914x64(no constant columns)
+```
+
+```{r}
+selected_columns <- colnames(data_train_new)
+data_test_new <- data_test[,selected_columns] 
+```
+
+```{r}
+#Check if imbalance 
+group <- as.data.frame(sort(table(data_train_new$Class),decreasing=TRUE))
+names(group)[1] <- "Class"
+ggplot(group,aes(x="",y=Freq,fill=Class))+geom_bar(width=1,stat='identity')+labs(x="Class",y="Frequency") 
+group[2,2]/sum(group[,2]) #29% are 1s,unbalanced
+```
+
+##There are more class "0" compared to class "1", we need resample,such as up_sampling
+
+```{r}
+#Resample data using up_sampling 
+set.seed(2019)
+data_train_re <- upSample(data_train_new[,-1],as.factor(data_train_new$Class))
+table(data_train_re$Class)
+data_test_re <- data.frame(cbind(data_test_new[,2:64],Class=as.factor(data_test_new$Class)))
+```
+
+
+```{r}
+#Check multicolinearity
+cormat <- round(cor(data_train_re[,1:63]),2)
+(sum(cormat>0.8)-63)/2 #There are 159 correlated pairs
+cols = findCorrelation(cormat,cutoff=0.8)
+data_train_final <- data_train_re[,-cols] #remove one of correlated pairs
+data_test_final <- data_test_re[,-cols]
+cor2 = round(cor(data_train_final[,1:ncol(data_train_final)-1]),2)
+ggcorrplot(cor2, hc.order = TRUE, ggtheme = ggplot2::theme_gray,
+colors = c("#6D9EC1", "white", "#E46726"))+labs(title="Correlation Heatmap")
+```
+
+```{r}
+#Fit the logistic regression model to check VIF for multicolinearity
+model1 <- glm(Class~.,family=binomial,data=data_train_final) 
+vif(model1) #vif(V3) > 5, remove it 
+data_train_final <- data_train_final[,-1]; data_test_final <- data_test_final[,-1]
+model2 <- glm(Class~.,family=binomial,data=data_train_final)
+```
+
+#Fit Linear Classifier 
+```{r}
+#Logistic regression 
+p <- predict(model2,newdata=data_test_final,type='response')
+p_class <- ifelse(p>0.5,1,0)
+accuracy1 <- mean(p_class==data_test_final$Class) #accuracy = 0.71
+recall1 <- sum(p_class==1&data_test_final$Class==1)/sum(data_test_final$Class==1) #recall=0.71
+precision1 <- sum(p_class==1&data_test_final$Class==1)/sum(p_class==1)
+2*(recall1*precision1)/(precision1+recall1)#f1 = 0.59
+```
+
+```{r}
+summary(model2)
+names(model2$coefficients)[order(abs(model2$coefficients),decreasing=TRUE)]
+```
+
+##The importance of variables ranked by logistic regression is:V74>V39>V7>V88>V4>V87>V31>V21>V75>V82>V38>V42>V65>V96>V72>V24>V94>V55>V57>V5 ranked by the estimated coefficient of the model.
+
+```{r}
+#auc for logistic regression 
+pred_log <- prediction(p,data_test_final$Class)
+perf_log <- performance(pred_log,measure='tpr',x.measure='fpr')
+performance(pred_log,"auc")#auc=0.78
+```
+
+
+
+```{r}
+#LDA 
+l <- lda(Class~.,data_train_final)
+p2 <- (predict(l,data_test_final))$class
+accuracy2 <- mean(p2==data_test_final$Class) #accuracy=0.70
+recall2 <- sum(p2==1&data_test_final$Class==1)/sum(data_test_final$Class==1) 
+#recall = 0.723
+precision2 <- sum(p2==1&data_test_final$Class==1)/sum(p2==1)
+2*(recall2*precision2)/(precision2+recall2)#f1 = 0.59
+```
+
+```{r}
+#auc for LDA
+pred_lda <- prediction((predict(l,data_test_final))$posterior[,2],
+                       data_test_final$Class)
+perf_lda <- performance(pred_lda,measure='tpr',x.measure='fpr')
+performance(pred_lda,"auc")#auc=0.78
+
+```
+
+```{r}
+#Linear SVM
+s <- svm(Class~.,data_train_final,type='C-classification',kernel='linear',
+         cost=2,gamma=1,probability=TRUE)
+p3 <- predict(s,data_test_final,probability=TRUE)
+mean(p3==data_test_final$Class) #accuracy=0.67
+sum(p3==1&data_test_final$Class==1)/sum(data_test_final$Class==1) #recall = 0.73
+
+```
+
+
+```{r}
+#auc for SVM
+pred_svm <- prediction(attr(p3,"probabilities")[,2],data_test_final$Class)
+perf_svm <- performance(pred_svm,measure='tpr',x.measure='fpr')
+performance(pred_svm,"auc")#auc=0.77
+
+```
+```{r}
+#Naive Bayes 
+nb <- naiveBayes(Class~.,data_train_final)
+p4 <- predict(nb,data_test_final)
+mean(p4==data_test_final$Class) #accuracy=0.71
+sum(p4==1&data_test_final$Class==1)/sum(data_test_final$Class==1) #Recall=0.13
+
+```
+```{r}
+#auc for Naive Bayes 
+pred_nb <- prediction(predict(nb,data_test_final,type='raw')[,2],
+                      data_test_final$Class)
+perf_nb <- performance(pred_nb,measure='tpr',x.measure='fpr')
+performance(pred_nb,"auc")#auc=0.735
+```
+
+
+#Performance for linear classifiers(ROC,f1)
+```{r}
+# List of predictions
+preds_list <- list(p, (predict(l,data_test_final))$posterior[,2],
+                   attr(p3,"probabilities")[,2], predict(nb,data_test_final,type='raw')[,2])
+
+# List of actual values (same for all)
+m <- length(preds_list)
+actuals_list <- rep(list(data_test_final$Class), m)
+
+# Plot the ROC curves
+pred <- prediction(preds_list, actuals_list)
+rocs <- performance(pred, "tpr", "fpr")
+plot(rocs, col = as.list(1:m), main = "Test Set ROC Curves")
+legend(x = "bottomright", 
+       legend = c("Logistic Regression", "LDA", "SVM-linear", "Naive Bayes"),
+       fill = 1:m)
+abline(0,1)
+```
+##From the plot above, we see that all linear classifiers are not performing that well, there is a higher probability of being classified as negative class(class 0).Among these classifiers,  Logistic regression and LDA performs slightly better than SVM-linear and Naive Bayes. Since logistic regression's auc=0.78 and f1=0.59 are slightly higher than LDA's, I'd choose logistic regression as the best linear classifier given the unbalanced dataset. 
+
+
+
+
+#Fit Non-linear classifier
+```{r}
+#SVM-radial
+n = ncol(data_train_final)
+#cost <- c(0,5,10,15)
+#gamma <- c(0.1,0.3,0.5)
+#svm_tune <- tune(svm,train.x=data_train_final[,1:n-1],train.y=data_train_final[,n],kernal='radial',ranges=list(cost=cost,gamma=gamma))
+svm <- svm(Class~.,data=data_train_final,kernel='radial',
+           type='C-classification',gamma=0.1,cost=5,probability=TRUE)
+svm_p <- predict(svm,data_test_final,probability=TRUE)
+mean(svm_p==data_test_final$Class) #accuracy = 0.72
+sum(svm_p==1&data_test_final[,21]==1)/sum(data_test_final[,21]==1) #recall=0.75
+```
+
+```{r}
+#QDA
+q <- qda(Class~.,data_train_final)
+q_p <- ifelse((predict(q,data_test_final))$posterior[,2]>0.5,1,0)
+mean(q_p==data_test_final$Class) #accuracy=0.72
+sum(q_p==1&data_test_final$Class==1)/sum(data_test_final$Class==1)#recall=0.13 
+```
+
+
+```{r}
+#Random Forest
+#Tune parameter for ntree 
+tree_num <- c(100, 300, 500, 800, 1000,1500,2000)
+OOB_error <- c()
+for(i in tree_num){
+  rf_model <- randomForest(Class ~., data = data_train_final, 
+  importance = TRUE, ntree = i)
+  OOB_error <- c(OOB_error, rf_model$err.rate[i, 1]) 
+}
+tree_num[which.min(OOB_error)] #500
+```
+
+```{r}
+#Tune parameter for mtry 
+set.seed(2019)
+t <- tuneRF(data_train_final[, 1:20], as.factor(data_train_final[, 21]), ntreeTry=800, mtryStart = 100, stepFactor=1.2, doBest = T)
+t$mtry #The best mtry is 84 
+```
+
+```{r}
+rf_final <-  randomForest(Class ~., data = data_train_final, 
+importance = TRUE, ntree = 500, mtry = 84, xtest = data_test_final[,1:20], ytest = as.factor(data_test_final[,21]))
+r_p <- (rf_final$test)$predicted 
+mean(rf_final$predicted==data_train_final[,21])#train-accuracy=0.75
+accuracy3 <-mean(r_p==data_test_final[,21]) #test-aacuracy=0.78
+recall3 <- sum(r_p==1&data_test_final[,21]==1)/sum(data_test_final[,21]==1)#recall=0.786
+precision3 <- sum(r_p==1&data_test_final[,21]==1)/sum(r_p==1)
+2*(recall3*precision3)/(precision3+recall3)#f1 = 0.68
+```
+
+```{r}
+index_order <- order(importance(rf_final,type=2),decreasing=TRUE)
+importance(rf_final,type=2)[index_order,]
+```
+
+##The important variables ranked by Random Forest is:V7>V21>V4>V5>V31>V75>V55>V38>V72>V94>V24>V57>V65>V39>V42>V82>V87>V96>V74>V88 by the mean decrease in Gini, which is a measure of how the variable contribute to the homogenity of the nodes and leaves in random forest 
+
+#Performance for non-linear classifier(ROC,f1) 
+```{r}
+pred_list2 <- list(attr(svm_p,"probabilities")[,2],
+(predict(q,data_test_final))$posterior[,2],rf_final$test$votes[,2])
+m <- length(pred_list2)
+actuals_list2 <- rep(list(data_test_final$Class), 3)
+# Plot the ROC curves
+pred <- prediction(pred_list2, actuals_list2)
+rocs <- performance(pred, "tpr", "fpr")
+plot(rocs, col = as.list(1:m), main = "Test Set ROC Curves")
+legend(x = "bottomright", 
+       legend = c("SVM-radial", "QDA", "Random Forest"),
+       fill = 1:m)
+abline(0,1)
+pred_rf <- prediction(pred@predictions[[3]],data_test_final$Class)
+performance(pred_rf,"auc")#auc=0.81
+```
+
+##From above, we see that random forest gives us a better roc curve with auc= 0.81 and f1=0.68. Hence I'd choose random forest as the best non-linear classifier for the given unbalanced dataset.
+
+
+
+
+
+
