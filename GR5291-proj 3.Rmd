@@ -1,0 +1,586 @@
+---
+title: "GR5291-proj"
+author: "Fangqi Ouyang"
+date: "12/5/2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#Split the data into training and test 
+library("infotheo")
+set.seed(123)
+data <- read.csv("data_set_ALL_AML_independent.csv")
+data <- t(data)
+index <- sample(1:nrow(data),54,replace=FALSE)
+data_train <- data[index,]
+data_test <- data[-index,]
+Y_train <- as.factor(data[index,1])
+Y_train <- as.factor(ifelse(Y_train==0,1,2))
+Y_test <- as.factor(data[-index,1])
+Y_test <- as.factor(ifelse(Y_test==0,1,2))
+n <- c(1:30)
+```
+
+```{r}
+source("best_par.R")
+source("cv.R")
+cost <- c(1,5,10,50)
+gamma  <- c(0.01,0.02,0.03)
+#coef <- c()
+coef <- c(0,-0.5,0.5,0.7)
+degree <- c(3,5,10)
+parameter <- (expand.grid(cost=cost,gamma=gamma))
+parameter_poly <- (expand.grid(cost=cost,gamma=gamma,coef=coef,degree=degree))
+parameter_linear <- expand.grid(cost=cost)
+parameter_sigmoid <- (expand.grid(cost=cost,gamma=gamma,coef=coef))
+type = ("C-classification")
+
+```
+
+#Get the level list 
+```{r}
+data_list <- list()
+X_test_list <- list()
+Y_test_list <- list()
+X <- list()
+Y <- list()
+X_list <- list()
+Y_list <- list()
+N = c(7:12)
+for(i in 1:6) {
+  load("~/input.RData")
+  #title <- paste("l", N[i], "n50.csv", sep = "")
+  #data_list[[i]] <- read.csv(title, header = T)
+  X[[i]] <- data_list[[i]][,-1]
+  X_list[[i]] <- X[[i]][index,]
+  X_test_list[[i]] <- X[[i]][-index,]
+  Y[[i]] <- data_list[[i]][,1]
+  Y_list[[i]] <- Y[[i]][index]
+  Y_test_list[[i]] <- Y[[i]][-index]
+  
+}
+#Y_train <- as.factor((data_list[[1]]$Y)[index])
+```
+
+```{r}
+#Find radial CV-error   
+f_r <- function(n,level,X,kernel,parameter){
+result <- list()
+if(kernel=="radial"){
+cv_accuracy <- rep(NA,nrow(parameter))
+cv_recall <- rep(NA,nrow(parameter))
+for(i in 1:length(n)){
+X_data <- data.frame((X[,1:n[i]]))
+cv_list <- apply(X=parameter,MARGIN=1,FUN=cv,X_data=X_data,Y_data=Y_train,kernel=kernel,type="C-classification")
+for(j in 1:nrow(parameter)){
+  cv_accuracy[j] <- cv_list[[j]]$accuracy
+  cv_recall[j] <- cv_list[[j]]$recall
+}
+result[[i]] <- cbind(accuracy=cv_accuracy,recall=cv_recall,par=parameter)
+}
+}
+else if (kernel=="linear"){
+cv_accuracy <- rep(NA,nrow(parameter))
+cv_recall <- rep(NA,nrow(parameter))
+  cv_list <- list()
+  for(i in 1:length(n)){
+X_data <- data.frame((X[,1:n[i]]))
+cv_list <- apply(parameter,MARGIN=1,FUN=cv_linear,X_data=X_data,Y_data=Y_train,kernel=kernel,type="C-classification")
+for(j in 1:nrow(parameter)){
+  #cv_list[[j]] <- cv_linear(X_data=X_data,Y_data=Y_train,kernel=kernel,parameter[i],type="C-classification")
+  cv_accuracy[j] <- cv_list[[j]]$accuracy
+  cv_recall[j] <- cv_list[[j]]$recall
+}
+result[[i]] <- cbind(accuracy=cv_accuracy,recall=cv_recall,par=parameter)
+  }
+}
+else if(kernel=="polynomial"){
+cv_accuracy <- rep(NA,nrow(parameter))
+cv_recall <- rep(NA,nrow(parameter))
+  for(i in 1:length(n)){
+X_data <- data.frame((X[,1:n[i]]))
+cv_list <- apply(X=parameter,MARGIN=1,FUN=cv_poly,X_data=X_data,Y_data=Y_train,kernel=kernel,type="C-classification")
+for(j in 1:nrow(parameter)){
+  cv_accuracy[j] <- cv_list[[j]]$accuracy
+  cv_recall[j] <- cv_list[[j]]$recall
+}
+result[[i]] <- cbind(accuracy=cv_accuracy,recall=cv_recall,par=parameter)
+  }
+}
+else{
+  cv_accuracy <- rep(NA,nrow(parameter))
+cv_recall <- rep(NA,nrow(parameter))
+  for(i in 1:length(n)){
+X_data <- data.frame((X[,1:n[i]]))
+cv_list <- apply(X=parameter,MARGIN=1,FUN=cv_sigmoid,X_data=X_data,Y_data=Y_train,kernel=kernel,type="C-classification")
+for(j in 1:nrow(parameter)){
+  cv_accuracy[j] <- cv_list[[j]]$accuracy
+  cv_recall[j] <- cv_list[[j]]$recall
+}
+result[[i]] <- cbind(accuracy=cv_accuracy,recall=cv_recall,par=parameter)
+  }
+}
+return(result)
+}
+```
+
+#PART I: For n=c(1:30) with level=7
+```{r}
+#For radial 
+library("e1071")
+#e1 <- f_r(n=c(1:30),level=7,X=X_list[[1]],kernel="radial",parameter=parameter)
+#save(e1,file=paste(getwd(),"/level7_radial.RData",sep=""))
+load("level7_radial.RData")
+best_par1 <- best_par(e1,parameter=parameter)
+best_cv1 <- max_cv(e1)
+#best_cv1
+#best_par1
+df1 = df_par(e1,parameter=parameter)
+colnames(df1) <- c("accuracy","recall","cost","gamma")
+```
+
+```{r}
+#For linear
+#e2 <- f_r(n=c(1:30),level=7,X_list[[1]],kernel="linear",parameter=parameter_linear)
+#save(e2,file=paste(getwd(),"/level7_linear.RData",sep=""))
+load("level7_linear.RData")
+best_par2 <- best_par(e2,parameter=parameter_linear)
+best_cv2 <- max_cv(e2)
+df2 = df_par(e2,parameter=parameter_linear)
+colnames(df2) <- c("accuracy","recall","cost")
+```
+
+```{r}
+#For polynomial
+#e3 <- f_r(n=c(1:30),level=7,X_list[[1]],kernel="polynomial",parameter=parameter_poly)
+#save(e3,file=paste(getwd(),"/level7_polynomial.RData",sep=""))
+load("level7_polynomial.RData")
+best_par3 <- best_par(e3,parameter=parameter_poly)
+best_cv3 <- max_cv(e3)
+df3 = df_par(e3,parameter=parameter_poly)
+colnames(df3) <- c("accuracy","recall","cost","gamma","coef","degree")
+```
+
+```{r}
+#For sigmoid 
+#e4 <- f_r(n=c(1:30),level=7,X_list[[1]],kernel="sigmoid",parameter=parameter_sigmoid)
+#save(e4,file=paste(getwd(),"/level7_sigmoid.RData",sep=""))
+load("level7_sigmoid.RData")
+best_par4 <- best_par(e4,parameter=parameter_sigmoid)
+best_cv4 <- max_cv(e4)
+df4 = df_par(e4,parameter=parameter_sigmoid)
+colnames(df4) <- c("accuracy","recall","cost","gamma","coef")
+```
+
+
+```{r}
+df_1 <- rbind(df1[,1:2],df2[,1:2],df3[,1:2],df4[,1:2])
+df_1 <- data.frame(df_1,"kernel"=rep(c("radial","linear","polynomial","sigmoid"),each=30))
+```
+#PART II: for n = 1:30 with a level = 8
+```{r}
+#For radial 
+#e11 <- f_r(n=c(1:30),level=8,X_list[[2]],kernel="radial",parameter=parameter)
+#save(e11,file=paste(getwd(),"/level8_radial.RData",sep=""))
+load("level8_radial.RData")
+best_par5 <- best_par(e11,parameter=parameter)
+best_cv5 <- max_cv(e11)
+df5 = df_par(e11,parameter=parameter)
+colnames(df5) <- c("accuracy","recall","cost","gamma")
+```
+
+```{r}
+#For linear
+#e22 <- f_r(n=c(1:30),level=8,X_list[[2]],kernel="linear",parameter=parameter_linear)
+#save(e22,file=paste(getwd(),"/level8_linear.RData",sep=""))
+load("level8_linear.RData")
+best_par6 <- best_par(e22,parameter=parameter_linear)
+best_cv6 <- max_cv(e22)
+df6 = df_par(e22,parameter=parameter_linear)
+colnames(df6) <- c("accuracy","recall","cost")
+```
+
+```{r}
+#For polynomial
+#e33 <- f_r(n=c(1:30),level=8,X_list[[2]],kernel="polynomial",parameter=parameter_poly)
+#save(e33,file=paste(getwd(),"/level8_polynomial.RData",sep=""))
+load("level8_polynomial.RData")
+best_par7 <- best_par(e33,parameter=parameter_poly)
+best_cv7 <- max_cv(e33)
+df7 = df_par(e33,parameter=parameter_poly)
+colnames(df7) <- c("accuracy","recall","cost","gamma","coef","degree")
+```
+
+```{r}
+#For sigmoid 
+#e44 <- f_r(n=c(1:30),level=X_list[[2]],kernel="sigmoid",parameter=parameter_sigmoid)
+#save(e44,file=paste(getwd(),"/level8_sigmoid.RData",sep=""))
+load("level8_sigmoid.RData")
+best_par8 <- best_par(e44,parameter=parameter_sigmoid)
+best_cv8 <- max_cv(e44)
+df8 = df_par(e44,parameter=parameter_sigmoid)
+colnames(df8) <- c("accuracy","recall","cost","gamma","coef")
+```
+
+```{r}
+df_2 <- rbind(df5[,1:2],df6[,1:2],df7[,1:2],df8[,1:2])
+df_2 <- data.frame(df_2,"kernel"=rep(c("radial","linear","polynomial","sigmoid"),each=30))
+```
+#PART III: for n = 1:30 with a level = 9
+```{r}
+#For radial 
+#e111 <- f_r(n=c(1:30),level=9,X_list[[3]],kernel="radial",parameter=parameter)
+#save(e111,file=paste(getwd(),"/level9_radial.RData",sep=""))
+load("level9_radial.RData")
+best_par9 <- best_par(e111,parameter=parameter)
+best_cv9 <- max_cv(e111)
+df9 = df_par(e111,parameter=parameter)
+colnames(df9) <- c("accuracy","recall","cost","gamma")
+```
+
+```{r}
+#For linear
+#e222 <- f_r(n=c(1:30),level=9,X_list[[3]],kernel="linear",parameter=parameter_linear)
+#save(e222,file=paste(getwd(),"/level9_linear.RData",sep=""))
+load("level9_linear.RData")
+best_par10 <- best_par(e222,parameter=parameter_linear)
+best_cv10 <- max_cv(e222)
+df10 = df_par(e222,parameter=parameter_linear)
+colnames(df10) <- c("accuracy","recall","cost")
+```
+
+```{r}
+#For polynomial
+#e333 <- f_r(n=c(1:30),level=9,X_list[[3]],kernel="polynomial",parameter=parameter_poly)
+#save(e333,file=paste(getwd(),"/level9_polynomial.RData",sep=""))
+load("level9_polynomial.RData")
+best_par11 <- best_par(e333,parameter=parameter_poly)
+best_cv11 <- max_cv(e333)
+df11 = df_par(e333,parameter=parameter_poly)
+colnames(df11) <- c("accuracy","recall","cost","gamma","coef","degree")
+```
+
+```{r}
+#For sigmoid 
+#e444 <- f_r(n=c(1:30),level=9,X_list[[3]],kernel="sigmoid",parameter=parameter_sigmoid)
+#save(e444,file=paste(getwd(),"/level9_sigmoid.RData",sep=""))
+load("level9_sigmoid.RData")
+best_par12 <- best_par(e444,parameter=parameter_sigmoid)
+best_cv12 <- max_cv(e444)
+df12 = df_par(e444,parameter=parameter_sigmoid)
+colnames(df12) <- c("accuracy","recall","cost","gamma","coef")
+```
+
+```{r}
+df_3 <- rbind(df9[,1:2],df10[,1:2],df11[,1:2],df12[,1:2])
+df_3 <- data.frame(df_3,"kernel"=rep(c("radial","linear","polynomial","sigmoid"),each=30))
+```
+
+#PART IIII: for n = 1:30 with a level = 10
+
+```{r}
+#For radial 
+#e1111 <- f_r(n=c(1:30),level=10,X_list[[4]],kernel="radial",parameter=parameter)
+#save(e1111,file=paste(getwd(),"/level10_radial.RData",sep=""))
+load("level10_radial.RData")
+best_par13 <- best_par(e1111,parameter=parameter)
+best_cv13 <- max_cv(e1111)
+df13 = df_par(e1111,parameter=parameter)
+colnames(df13) <- c("accuracy","recall","cost","gamma")
+```
+
+```{r}
+#For linear
+#e2222 <- f_r(n=c(1:30),level=10,X_list[[4]],kernel="linear",parameter=parameter_linear)
+#save(e2222,file=paste(getwd(),"/level10_linear.RData",sep=""))
+load("level10_linear.RData")
+best_par14 <- best_par(e2222,parameter=parameter_linear)
+best_cv14 <- max_cv(e2222)
+df14 = df_par(e2222,parameter=parameter_linear)
+colnames(df14) <- c("accuracy","recall","cost")
+```
+
+```{r}
+#For polynomial
+#e3333 <- f_r(n=c(1:30),level=10,X_list[[4]],kernel="polynomial",parameter=parameter_poly)
+#save(e3333,file=paste(getwd(),"/level10_polynomial.RData",sep=""))
+load("level10_polynomial.RData")
+best_par15 <- best_par(e3333,parameter=parameter_poly)
+best_cv15 <- max_cv(e3333)
+df15 = df_par(e3333,parameter=parameter_poly)
+colnames(df15) <- c("accuracy","recall","cost","gamma","coef","degree")
+```
+
+```{r}
+#For sigmoid 
+#e4444 <- f_r(n=c(1:30),level=10,X_list[[4]],kernel="sigmoid",parameter=parameter_sigmoid)
+#save(e4444,file=paste(getwd(),"/level10_polynomial.RData",sep=""))
+load("level10_sigmoid.RData")
+best_par16 <- best_par(e4444,parameter=parameter_sigmoid)
+best_cv16 <- max_cv(e4444)
+df16 = df_par(e4444,parameter=parameter_sigmoid)
+colnames(df16) <- c("accuracy","recall","cost","gamma","coef")
+```
+
+```{r}
+df_4 <- rbind(df13[,1:2],df14[,1:2],df15[,1:2],df16[,1:2])
+df_4 <- data.frame(df_4,"kernel"=rep(c("radial","linear","polynomial","sigmoid"),each=30))
+```
+#PART V: for n = 1:30 with a level = 11
+
+```{r}
+#For radial 
+#e11111 <- f_r(n=c(1:30),level=11,X_list[[5]],kernel="radial",parameter=parameter)
+#save(e11111,file=paste(getwd(),"/level11_radial.RData",sep=""))
+load("level11_radial.RData")
+best_par17 <- best_par(e11111,parameter=parameter)
+best_cv17 <- max_cv(e11111)
+df17 = df_par(e11111,parameter=parameter)
+colnames(df17) <- c("accuracy","recall","cost","gamma")
+```
+
+```{r}
+#For linear
+#e22222 <- f_r(n=c(1:30),level=11,X_list[[5]],kernel="linear",parameter=parameter_linear)
+#save(e22222,file=paste(getwd(),"/level11_linear.RData",sep=""))
+load("level11_linear.RData")
+best_par18 <- best_par(e22222,parameter=parameter_linear)
+best_cv18 <- max_cv(e22222)
+df18 = df_par(e22222,parameter=parameter_linear)
+colnames(df18) <- c("accuracy","recall","cost")
+```
+
+```{r}
+#For polynomial
+#e33333 <- f_r(n=c(1:30),level=11,X_list[[5]],kernel="polynomial",parameter=parameter_poly)
+#save(e33333,file=paste(getwd(),"/level11_polynomial.RData",sep=""))
+load("level11_polynomial.RData")
+best_par19 <- best_par(e33333,parameter=parameter_poly)
+best_cv19 <- max_cv(e33333)
+df19 = df_par(e33333,parameter=parameter_poly)
+colnames(df19) <- c("accuracy","recall","cost","gamma","coef","degree")
+```
+
+```{r}
+#For sigmoid 
+#e44444 <- f_r(n=c(1:30),level=11,X_list[[5]],kernel="sigmoid",parameter=parameter_sigmoid)
+#save(e44444,file=paste(getwd(),"/level11_sigmoid.RData",sep=""))
+load("level11_sigmoid.RData")
+best_par20 <- best_par(e44444,parameter=parameter_sigmoid)
+best_cv20 <- max_cv(e44444)
+df20 = df_par(e44444,parameter=parameter_sigmoid)
+colnames(df20) <- c("accuracy","recall","cost","gamma","coef")
+```
+```{r}
+df_5 <- rbind(df17[,1:2],df18[,1:2],df19[,1:2],df20[,1:2])
+df_5 <- data.frame(df_5,"kernel"=rep(c("radial","linear","polynomial","sigmoid"),each=30))
+```
+
+#PART VI: for n = 1:30 with a level = 12
+
+```{r}
+#For radial 
+#e111111 <- f_r(n=c(1:30),level=12,X_list[[6]],kernel="radial",parameter=parameter)
+#save(e111111,file=paste(getwd(),"/level12_radial.RData",sep=""))
+load("level12_radial.RData")
+best_par21 <- best_par(e111111,parameter=parameter)
+best_cv21 <- max_cv(e111111)
+df21 = df_par(e111111,parameter=parameter)
+colnames(df21) <- c("accuracy","recall","cost","gamma")
+```
+
+```{r}
+#For linear
+#e222222 <- f_r(n=c(1:30),level=12,X_list[[6]],kernel="linear",parameter=parameter_linear)
+#save(e222222,file=paste(getwd(),"/level12_linear.RData",sep=""))
+load("level12_linear.RData")
+best_par22 <- best_par(e222222,parameter=parameter_linear)
+best_cv22 <- max_cv(e222222)
+df22 = df_par(e222222,parameter=parameter_linear)
+colnames(df22) <- c("accuracy","recall","cost")
+```
+
+```{r}
+#For polynomial
+#e333333 <- f_r(n=c(1:30),level=12,X_list[[6]],kernel="polynomial",parameter=parameter_poly)
+#save(e333333,file=paste(getwd(),"/level12_polynomial.RData",sep=""))
+load("level12_polynomial.RData")
+best_par23 <- best_par(e333333,parameter=parameter_poly)
+best_cv23 <- max_cv(e333333)
+df23 = df_par(e333333,parameter=parameter_poly)
+colnames(df23) <- c("accuracy","recall","cost","gamma","coef","degree")
+```
+
+```{r}
+#For sigmoid 
+#e444444 <- f_r(n=c(1:30),level=12,X_list[[6]],kernel="sigmoid",parameter=parameter_sigmoid)
+#save(e444444,file=paste(getwd(),"/level12_sigmoid.RData",sep=""))
+load("level12_sigmoid.RData")
+best_par24 <- best_par(e444444,parameter=parameter_sigmoid)
+best_cv24 <- max_cv(e444444)
+df24 = df_par(e444444,parameter=parameter_sigmoid)
+colnames(df24) <- c("accuracy","recall","cost","gamma","coef")
+```
+
+```{r}
+df_6 <- rbind(df21[,1:2],df22[,1:2],df23[,1:2],df24[,1:2])
+df_6 <- data.frame(df_6,"kernel"=rep(c("radial","linear","polynomial","sigmoid"),each=30))
+```
+
+
+#PART VII: Find the best model for each level 
+```{r}
+#level=7
+which((df_1[,"accuracy"]>0.97)&(df_1[,"kernel"]=="sigmoid"))
+df4[102-90,]
+library("ggplot2")
+ggplot(df_1,aes(x=rep(1:30,4),y=accuracy))+geom_line(aes(col=kernel))
+#For level=7: cost=10,gamma=0.01,coef=0,kernel="sigmoid",n=12,accuracy=0.9815,recall=0.9714
+```
+
+```{r}
+#level=8
+#which((df_2[,"accuracy"]>0.975)&(df_2[,"kernel"]=="sigmoid"))
+which((df_2[,"accuracy"]>0.95)&(df_2[,"kernel"]=="linear"))
+#df8[102-90,]
+df6[3,]
+ggplot(df_2,aes(x=rep(1:30,4),y=accuracy))+geom_line(aes(col=kernel))
+#The best model for level=8 is cost=5,coef=5,kernel="linear",n=3;
+#Accuracy = 0.9630, Recall = 0.9706
+```
+
+
+```{r}
+#level=9
+which((df_3[,"accuracy"]>0.975)&(df_3[,"kernel"]=="polynomial"))
+df11[69-60,]
+ggplot(df_3,aes(x=rep(1:30,4),y=accuracy))+geom_line(aes(col=kernel))
+#The best model for level=9 is cost=10,gamma=0.03,coef=-0.5,degree=3,kernel="polynomial,n=9";
+#Accuracy = 0.9815, Recall = 0.9714
+```
+
+```{r}
+#level=10
+which((df_4[,"accuracy"]>0.975)&(df_4[,"kernel"]=="sigmoid"))
+df16[98-90,]
+ggplot(df_4,aes(x=rep(1:30,4),y=accuracy))+geom_line(aes(col=kernel))
+#The best model for level=10 is cost=5,gamma=0.03,coef=0,kernel="sigmoid",n=8;
+#Accuracy = 0.9815, Recall = 0.9714
+```
+
+```{r}
+#level=11
+#which((df_5[,"accuracy"]==1)&(df_5[,"kernel"]=="polynomial"))
+which((df_5[,"accuracy"]>0.95)&(df_5[,"kernel"]=="radial"))
+df17[5,]
+ggplot(df_5,aes(x=rep(1:30,4),y=accuracy))+geom_line(aes(col=kernel))
+#The best model for level=11 is cost=50,gamma=0.03,kernel="radial",n=5;
+#Accuracy = 0.9815, Recall = 0.9706
+```
+
+
+```{r}
+#level=12
+#which((df_6[,"accuracy"]==1)&(df_6[,"kernel"]=="polynomial"))
+which((df_6[,"accuracy"]>0.96)&(df_6[,"kernel"]=="radial"))
+df21[6,]
+ggplot(df_6,aes(x=rep(1:30,4),y=accuracy))+geom_line(aes(col=kernel))
+#The best model for level=12 is cost=50,gamma=0.02,kernel="radial",n=6;
+#Accuracy = 0.9629, Recall = 0.9706
+```
+
+#PART VII: Compare 6 models 
+```{r}
+#Six potential models 
+##For level=7: cost=10,gamma=0.01,coef=0,kernel="sigmoid",n=12,accuracy=0.9815,recall=0.9714;
+#For level=8 : cost=5,coef=5,kernel="linear",n=3,accuracy = 0.9630, Recall = 0.9706;
+#For level=9:  cost=10,gamma=0.03,coef=-0.5,degree=3,kernel="polynomial,n=9";accuracy = 0.9815, recall = 0.9714;
+#For level=10: cost=5,gamma=0.03,coef=0,kernel="sigmoid",n=8;accuracy = 0.9815, Recall = 0.9714;
+#For level=11: cost=50,gamma=0.03,kernel="radial",n=5;#Accuracy = 0.9815, Recall = 0.9706;
+#For level=12: cost=50,gamma=0.02,kernel="radial",n=6;#Accuracy = 0.9629, Recall = 0.9706;
+library("e1071")
+#library("parallelSVM")
+df1 <- data.frame(X_list[[1]][,1:12],Y=Y_train)
+df2 <- data.frame(X_list[[2]][,1:3],Y=Y_train)
+df3 <- data.frame(X_list[[3]][,1:9],Y=Y_train)
+df4 <- data.frame(X_list[[4]][,1:8],Y=Y_train)
+df5 <- data.frame(X_list[[5]][,1:5],Y=Y_train)
+df6 <- data.frame(X_list[[6]][,1:6],Y=Y_train)
+df7 <- data.frame(X_test_list[[3]][,1:9],Y=Y_test_list[[3]])
+df8 <- data.frame(X[[3]][,1:9],Y=Y[[3]])
+
+df1_test <- data.frame(X_test_list[[1]][,1:12],Y=Y_test)
+df2_test <- data.frame(X_test_list[[2]][,1:3],Y=Y_test)
+df3_test <- data.frame(X_test_list[[3]][,1:9],Y=Y_test)
+df4_test <- data.frame(X_test_list[[4]][,1:8],Y=Y_test)
+df5_test <- data.frame(X_test_list[[5]][,1:5],Y=Y_test)
+df6_test <- data.frame(X_test_list[[6]][,1:6],Y=Y_test)
+p1 <- predict(svm(Y~. ,data=df1, kernel="sigmoid",cost=10,gamma=0.01,coef0=0,type="C-classification"),df1_test)
+p2 <- predict(svm(Y~. ,data=df2,kernel="linear",cost=5,type="C-classification"),df2_test)
+p3 <- predict(svm(Y~. ,data=df3,kernel="polynomial",cost=10,gamma=0.03,coef0=-0.5,degree=3,type="C-classification"),df3_test)
+p4 <- predict(svm(Y~. ,data=df4,kernel="sigmoid",cost=5,gamma=0.03,coef0=0,type="C-classification"),df4_test)
+p5 <- predict(svm(Y~. ,data=df5,kernel="radial",cost=50,gamma=0.03,type="C-classification"),df5_test)
+p6 <- predict(svm(Y~. ,data=df6,kernel="radial",cost=50,gamma=0.02,type="C-classification"),df6_test)
+p7 <- predict(svm(Y~. ,data=df5,kernel="polynomial",cost=10,gamma=0.03,coef0=-0.5,degree=3,type="C-classification"),df7)
+p8 <- predict(svm(Y~. ,data=df5,kernel="polynomial",cost=10,gamma=0.03,coef0=-0.5,degree=3,type="C-classification"),df8)
+a1 <- sum(p1==Y_test)/length(Y_test)
+a2 <- sum(p2==Y_test)/length(Y_test)
+a3 <- sum(p3==Y_test)/length(Y_test)
+a4 <- sum(p4==Y_test)/length(Y_test)
+a5 <- sum(p5==Y_test)/length(Y_test)
+a6 <- sum(p6==Y_test)/length(Y_test)
+#a7 <- sum(ifelse(p7==2,1,0)==Y_test)/length(Y_test)
+#a8 <- sum(ifelse(p8==2,1,0)==Y[[3]])/length(Y[[3]])
+```
+#The final model we selected is:level=9,n=9,cost=10,gamma=0.03,coef=-0.5,degree=3,kernel="polynomial;accuracy = 0.9444
+
+```{r}
+#Get the confusion matrix 
+p7 <- ifelse(p7==2,1,0)
+result <- data.frame(predicted=(p7),true=(Y_test_list[[1]]))
+a <- (table(result$predicted==1,result$true))
+```
+```{r}
+confusion <- matrix(NA,2,2)
+confusion[1,1] <- a[1,1]
+confusion[1,2] <- a[2,1]
+confusion[2,1] <- a[1,2]
+confusion[2,2] <- a[2,2]
+colnames(confusion) <- c("ALL Cancer (0)","ALL Cancer (1)")
+rownames(confusion) <- c("ALL Cancer (0)","ALL Cancer (1)")
+confusion
+#(This is the testing confusion matrix)
+(5+12)/18
+```
+
+
+
+
+```{r}
+p <- ifelse(p8==2,1,0)
+result <- data.frame(predicted=(p8),true=Y[[3]])
+b <- (table(result$predicted==1,result$true))
+confusion2 <- matrix(NA,2,2)
+confusion2[1,1] <- b[2,1]
+confusion2[1,2] <- b[1,1]
+confusion2[2,1] <- b[2,2]
+confusion2[2,2] <- b[1,2]
+colnames(confusion2) <- c("ALL Cancer (0)","ALL Cancer (1)")
+rownames(confusion2) <- c("ALL Cancer (0)","ALL Cancer (1)")
+confusion2
+#(this is the training confusion matrix 
+(22+46)/72
+```
+
+
+```{r}
+#gene selected
+names(X[[3]][1:9])
+#testing accuracy
+(22+46)/72
+#Model selected: cost=10,gamma=0.03,coef=-0.5,degree=3,kernel="polynomial,n=9";cv-accuracy = 0.9815, recall = 0.9714;
+```
